@@ -7,9 +7,8 @@
 """
 
 import os
-import sys
 import json
-import subprocess
+import sys
 
 
 class ParserWrapper:
@@ -24,7 +23,15 @@ class ParserWrapper:
         Args:
             output_file (str): Имя файла для сохранения результатов
         """
-        self.output_file = output_file
+        # Определяем директорию приложения (директория, где находится EXE)
+        if getattr(sys, 'frozen', False):
+            # Если запущено как EXE
+            app_dir = os.path.dirname(sys.executable)
+        else:
+            # Если запущено как скрипт
+            app_dir = os.path.dirname(os.path.abspath(__file__))
+            
+        self.output_file = os.path.join(app_dir, output_file)
     
     def run_parser(self):
         """
@@ -37,34 +44,11 @@ class ParserWrapper:
                   rsci_journals - количество журналов в RSCI
         """
         try:
-            # Проверяем существование файла parser.py
-            if not os.path.exists("parser.py"):
-                return {
-                    "journals_processed": 0,
-                    "white_list_journals": 0,
-                    "rsci_journals": 0,
-                    "error": "Файл parser.py не найден"
-                }
+            # Импортируем парсер напрямую вместо запуска через subprocess
+            import parser
             
-            # Запускаем парсер как подпроцесс
-            process = subprocess.Popen(
-                [sys.executable, "parser.py"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                universal_newlines=True,
-                encoding='utf-8',
-                errors='replace'
-            )
-            stdout, stderr = process.communicate()
-            
-            # Проверяем успешность выполнения
-            if process.returncode != 0:
-                return {
-                    "journals_processed": 0,
-                    "white_list_journals": 0,
-                    "rsci_journals": 0,
-                    "error": f"Ошибка при выполнении парсера: {stderr}"
-                }
+            # Запускаем парсер
+            parser.main()
             
             # Проверяем создание файла с данными
             if not os.path.exists(self.output_file):
@@ -82,7 +66,9 @@ class ParserWrapper:
                 
                 # Считаем статистику
                 journals_count = len(journals)
-                white_list_count = sum(1 for j in journals if j.get("white_level") != "none")
+                white_list_count = sum(
+                    1 for j in journals if j.get("white_level") != "none"
+                )
                 rsci_count = sum(1 for j in journals if j.get("RSCI"))
                 
                 return {

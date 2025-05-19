@@ -8,6 +8,7 @@
 import json
 import os
 import pandas as pd
+import sys
 
 
 class JournalDatabase:
@@ -23,7 +24,15 @@ class JournalDatabase:
         Args:
             filename (str): Имя файла с данными журналов
         """
-        self.filename = filename
+        # Определяем директорию приложения (директория, где находится EXE)
+        if getattr(sys, 'frozen', False):
+            # Если запущено как EXE
+            app_dir = os.path.dirname(sys.executable)
+        else:
+            # Если запущено как скрипт
+            app_dir = os.path.dirname(os.path.abspath(__file__))
+            
+        self.filename = os.path.join(app_dir, filename)
         self.journals = []
         self.load_data()
     

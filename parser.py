@@ -5,6 +5,7 @@ import os
 import asyncio
 import aiohttp
 import datetime
+import sys
 
 def get_total_pages(soup):
     """
@@ -73,8 +74,7 @@ async def check_rcsi_status(issn, journal_name="", session=None):
             return {
                 "white_level": "none", 
                 "RSCI": False, 
-                "rcsi_url": "none", 
-                "elibrary_url": "none"
+                "rcsi_url": "none"
             }
         
         # Очищаем ISSN от возможных лишних символов
@@ -91,6 +91,13 @@ async def check_rcsi_status(issn, journal_name="", session=None):
             if len(cleaned_issn) == 8:
                 cleaned_issn = f"{cleaned_issn[:4]}-{cleaned_issn[4:]}"
         
+        # Статус по умолчанию
+        status = {
+            "white_level": "none", 
+            "RSCI": False, 
+            "rcsi_url": "none"
+        }
+        
         # Заголовки для имитации браузера
         headers = {
             'User-Agent': ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
@@ -103,23 +110,6 @@ async def check_rcsi_status(issn, journal_name="", session=None):
             'Upgrade-Insecure-Requests': '1',
             'Cache-Control': 'max-age=0'
         }
-        
-        # Статус по умолчанию
-        status = {
-            "white_level": "none", 
-            "RSCI": False, 
-            "rcsi_url": "none", 
-            "elibrary_url": "none"
-        }
-        
-        # Формируем ссылку на поиск в elibrary по ISSN
-        if cleaned_issn:
-            # Используем базовую ссылку на поиск журналов с добавлением ISSN в параметры
-            elibrary_url = (
-                f"https://elibrary.ru/titles.asp?rubriccode=&sortorder=4"
-                f"&titlename={cleaned_issn}&order=1"
-            )
-            status["elibrary_url"] = elibrary_url
         
         # Сначала пробуем поиск по ISSN, если он есть
         found_by_issn = False
@@ -395,6 +385,35 @@ async def process_page(page, page_url, headers, session, target_specialty):
                     journal_name = cells[1].text.strip() if len(cells) > 1 else ""
                     issn = cells[2].text.strip() if len(cells) > 2 else ""
                     
+                    # Очищаем ISSN от возможных лишних символов
+                    cleaned_issn = ""
+                    if issn:
+                        # Удаляем все символы, кроме цифр, X и x
+                        cleaned_issn = ''.join(
+                            c for c in issn if c.isdigit() or c.upper() == 'X'
+                        )
+                        # Если длина больше 8, возможно склеены два ISSN - берем первый
+                        if len(cleaned_issn) > 8:
+                            cleaned_issn = cleaned_issn[:8]
+                        # Форматируем ISSN с дефисом 
+                        if len(cleaned_issn) == 8:
+                            cleaned_issn = f"{cleaned_issn[:4]}-{cleaned_issn[4:]}"
+                    
+                    # Формируем ссылку на elibrary
+                    elibrary_url = "none"
+                    if cleaned_issn:
+                        elibrary_url = (
+                            f"https://elibrary.ru/titles.asp?rubriccode=&sortorder=4"
+                            f"&titlename={cleaned_issn}&order=1"
+                        )
+                    elif journal_name:
+                        # Если нет ISSN, используем название журнала
+                        search_term = journal_name.replace(' ', '+')
+                        elibrary_url = (
+                            f"https://elibrary.ru/titles.asp?rubriccode=&sortorder=4"
+                            f"&titlename={search_term}&order=1"
+                        )
+                    
                     # Определяем категорию ВАК, или "none" если не указана
                     vak_category = ""
                     if len(cells) > 5:
@@ -419,7 +438,7 @@ async def process_page(page, page_url, headers, session, target_specialty):
                         "white_level": "none",
                         "RSCI": False,
                         "rcsi_url": "none",
-                        "elibrary_url": "none",
+                        "elibrary_url": elibrary_url,
                         "relevance": True  # По умолчанию журнал актуален
                     }
                     
@@ -555,12 +574,27 @@ async def check_journals_status(journals_data):
 
 def save_to_json(data, filename):
     """
-    Сохраняет данные в JSON файл
+    Сохраняет данные в JSON-файл
+    
+    Args:
+        data: Данные для сохранения
+        filename: Имя файла
     """
+    # Определяем директорию приложения (директория, где находится EXE)
+    if getattr(sys, 'frozen', False):
+        # Если запущено как EXE
+        app_dir = os.path.dirname(sys.executable)
+    else:
+        # Если запущено как скрипт
+        app_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Полный путь к файлу
+    full_path = os.path.join(app_dir, filename)
+    
     try:
-        with open(filename, 'w', encoding='utf-8') as f:
+        with open(full_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
-        print(f"Данные успешно сохранены в файл {filename}")
+        print(f"Данные успешно сохранены в файл {full_path}")
     except Exception as e:
         print(f"Ошибка при сохранении в JSON: {e}")
 
@@ -569,16 +603,27 @@ async def main_async():
     json_filename = "vak_journals_2.3.4.json"
     journals_data = []
     
+    # Определяем директорию приложения (директория, где находится EXE)
+    if getattr(sys, 'frozen', False):
+        # Если запущено как EXE
+        app_dir = os.path.dirname(sys.executable)
+    else:
+        # Если запущено как скрипт
+        app_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Полный путь к файлу
+    full_path = os.path.join(app_dir, json_filename)
+    
     # Проверяем, существует ли файл с данными
-    if os.path.exists(json_filename):
-        print(f"Найден существующий файл с данными: {json_filename}")
+    if os.path.exists(full_path):
+        print(f"Найден существующий файл с данными: {full_path}")
         try:
             # Загружаем данные из существующего файла
-            with open(json_filename, 'r', encoding='utf-8') as f:
+            with open(full_path, 'r', encoding='utf-8') as f:
                 journals_data = json.load(f)
             print(f"Загружено {len(journals_data)} журналов из файла")
         except Exception as e:
-            print(f"Ошибка при чтении файла {json_filename}: {e}")
+            print(f"Ошибка при чтении файла {full_path}: {e}")
             journals_data = []
     
     # Если данные не загружены из файла, парсим с сайта ВАК
